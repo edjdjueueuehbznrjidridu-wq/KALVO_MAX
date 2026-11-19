@@ -15,7 +15,6 @@ android.api = 33
 android.minapi = 24
 android.ndk = 25b
 android.sdk = 33
-android.skip_update = True
 android.accept_sdk_license = True
 android.archs = arm64-v8a
 android.allow_backup = False
