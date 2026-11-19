@@ -1,0 +1,109 @@
+name: KALVO Android Boot Probe APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kalvo-boot-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-probe:
+    name: Build minimal Kivy-only diagnostic APK
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      BUILDOZER_WARN_ON_ROOT: '0'
+      ANDROID_ACCEPT_SDK_LICENSE: '1'
+      APP_ANDROID_ACCEPT_SDK_LICENSE: '1'
+      PYTHONFORANDROID_PREREQUISITES_INSTALL_INTERACTIVE: '0'
+      P4A_RELEASE: '0'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Android build system packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            ant autoconf automake autopoint build-essential ccache cmake gettext \
+            git lbzip2 libbz2-dev libffi-dev libjpeg-dev libltdl-dev liblzma-dev \
+            libncurses5-dev libncursesw5-dev libpng-dev libsqlite3-dev libssl-dev \
+            libtinfo5 libtool make openjdk-17-jdk patch pkg-config unzip wget zip \
+            zlib1g-dev
+
+      - name: Restore Android toolchain cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            android_boot_probe/.buildozer
+          key: ${{ runner.os }}-kalvo-boot-probe-${{ hashFiles('android_boot_probe/buildozer.spec') }}
+          restore-keys: |
+            ${{ runner.os }}-kalvo-boot-probe-
+            ${{ runner.os }}-kalvo-
+
+      - name: Install pinned Android build toolchain
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip setuptools wheel virtualenv
+          python -m pip install 'buildozer==1.5.0' 'Cython==0.29.36' legacy-cgi
+          buildozer --version
+          cython --version
+
+      - name: Validate probe source
+        run: |
+          set -euo pipefail
+          test -f android_boot_probe/main.py
+          test -f android_boot_probe/buildozer.spec
+          python -m py_compile android_boot_probe/main.py
+
+      - name: Build KALVO Boot Probe APK
+        working-directory: android_boot_probe
+        run: buildozer -v android debug
+
+      - name: Verify and publish the raw APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t APKS < <(find android_boot_probe/bin -maxdepth 1 -type f -name '*.apk' -print | sort)
+          if [[ ${#APKS[@]} -ne 1 ]]; then
+            echo "Expected exactly one Boot Probe APK, found ${#APKS[@]}"
+            find android_boot_probe/bin -maxdepth 1 -type f -print || true
+            exit 1
+          fi
+          sha256sum "${APKS[0]}" | tee android_boot_probe/BOOT_PROBE_SHA256.txt
+
+      - name: Upload the Boot Probe APK directly
+        uses: actions/upload-artifact@v7
+        with:
+          name: KALVO-Android-Boot-Probe-APK
+          path: android_boot_probe/bin/*.apk
+          archive: false
+          retention-days: 30
+
+      - name: Keep probe build metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: KALVO-Android-Boot-Probe-Build-Info
+          path: |
+            android_boot_probe/BOOT_PROBE_SHA256.txt
+            android_boot_probe/buildozer.spec
+          if-no-files-found: error
+          retention-days: 30

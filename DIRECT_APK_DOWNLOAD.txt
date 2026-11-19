@@ -1,0 +1,3 @@
+The Android APK is uploaded as a single raw artifact by actions/upload-artifact@v7 with archive: false.
+Download the .apk file itself from the GitHub Actions run Artifacts section.
+The build metadata artifact remains a ZIP and is not the installer.
